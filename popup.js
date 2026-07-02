@@ -1,4 +1,4 @@
-const API_KEY = 'tGapO2EC6HoiPjLejRvLSVhFL11DOZ2Z'; 
+const API_KEY = 'YOUR_MISTRAL_API_KEY'; 
 const runAiButton = document.getElementById('runAiButton');
 const debugViewer = document.getElementById('analysisResult');
 const promptInput = document.getElementById('promptInput');

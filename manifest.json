@@ -1,0 +1,7 @@
+{
+  "manifest_version": 3,
+  "name": "AI",
+  "version": "1.5.3",
+  "permissions": ["activeTab", "scripting"],
+  "action": { "default_popup": "popup.html" }
+}

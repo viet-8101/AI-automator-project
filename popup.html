@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Element Agent</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="popup">
+    <h1>Element Agent</h1>
+
+    <textarea id="promptInput" placeholder="Nhập lệnh điều khiển..."></textarea>
+
+    <div class="button-group">
+      <button id="analyzeLayoutButton">Xem DOM</button>
+      <button id="runAiButton">Thực thi AI</button>
+    </div>
+
+    <div class="debug-actions">
+      <button id="btnShowReq">Request</button>
+      <button id="btnShowRes">Response</button>
+    </div>
+
+    <pre id="analysisResult">Dữ liệu sẽ hiển thị tại đây...</pre>
+    <p id="status" style="font-size: 0.75rem; color: #64748b;">Sẵn sàng.</p>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

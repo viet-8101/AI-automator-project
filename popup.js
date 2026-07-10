@@ -1,10 +1,11 @@
-const API_KEY = 'YOUR_MISTRAL_API_KEY'; 
+const API_KEY = 'YOUR-API-KEY'; 
 const runAiButton = document.getElementById('runAiButton');
+const analyzeLayoutButton = document.getElementById('analyzeLayoutButton');
 const debugViewer = document.getElementById('analysisResult');
 const promptInput = document.getElementById('promptInput');
 const status = document.getElementById('status');
 
-async function callMistral(messages, temp = 0.4) {
+async function callMistral(messages, temp = 0.3) {
     const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
         method: 'POST',
         headers: { 
@@ -21,11 +22,176 @@ async function callMistral(messages, temp = 0.4) {
     return data.choices[0].message.content;
 }
 
+// Tính năng 1: Chống kiểm tra Fullscreen (Đã nâng cấp ẩn Descriptor & Sai số kích thước tự nhiên)
+analyzeLayoutButton.addEventListener('click', async () => {
+    status.textContent = 'Đang quét biến và khóa cơ chế Fullscreen...';
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (!tab) {
+        status.textContent = 'Không tìm thấy Tab hoạt động!';
+        return;
+    }
+
+    await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: 'MAIN', 
+        func: () => {
+            console.log("%c[Anti-Fullscreen] Kích hoạt chế độ tàng hình nâng cao...", "color: #10b981; font-weight: bold;");
+
+            const detectedProps = new Set();
+            const logDetection = (prop) => {
+                if (!detectedProps.has(prop)) {
+                    detectedProps.add(prop);
+                    console.log(`%c[Bắt bài] Hệ thống vừa check: ${prop}`, "color: #f59e0b; font-weight: bold;");
+                }
+            };
+
+            const fullscreenProperties = {
+                document: [
+                    'fullscreenElement', 'webkitFullscreenElement', 'mozFullScreenElement', 'msFullscreenElement',
+                    'fullscreenEnabled', 'webkitFullscreenEnabled', 'mozFullScreenEnabled', 'msFullScreenEnabled',
+                    'webkitIsFullScreen', 'mozFullScreen'
+                ],
+                window: ['innerHeight', 'innerWidth', 'outerHeight', 'outerWidth'],
+                screen: ['width', 'height', 'availWidth', 'availHeight']
+            };
+
+            const defineReadOnly = (obj, prop, getter) => {
+                try {
+                    Object.defineProperty(obj, prop, {
+                        get: getter,
+                        set: () => true,
+                        enumerable: true,
+                        configurable: false
+                    });
+                } catch (e) {}
+            };
+
+            // 1. Ghi đè thuộc tính Document
+            fullscreenProperties.document.forEach(prop => {
+                defineReadOnly(document, prop, function() {
+                    logDetection(`document.${prop}`);
+                    return prop.toLowerCase().includes('element') ? null : true;
+                });
+            });
+
+            // 2. Ghi đè Window và Screen để tránh khớp đúng kích thước fullscreen
+            const screenBase = {
+                width: window.screen.width,
+                height: window.screen.height,
+                availWidth: window.screen.availWidth,
+                availHeight: window.screen.availHeight
+            };
+
+            fullscreenProperties.window.forEach(prop => {
+                try {
+                    const naturalOffset = Math.floor(Math.random() * 3) + 1;
+                    defineReadOnly(window, prop, function() {
+                        logDetection(`window.${prop}`);
+                        const base = prop.toLowerCase().includes('width')
+                            ? (screenBase.availWidth || screenBase.width)
+                            : (screenBase.availHeight || screenBase.height);
+                        return Math.max(1, base - naturalOffset);
+                    });
+                } catch (e) {}
+            });
+
+            fullscreenProperties.screen.forEach(prop => {
+                try {
+                    const baseValue = screenBase[prop] || 0;
+                    defineReadOnly(window.screen, prop, function() {
+                        logDetection(`screen.${prop}`);
+                        return Math.max(1, baseValue - 1);
+                    });
+                } catch (e) {}
+            });
+
+            // 3. Chống phát hiện rời Tab / visibility
+            try {
+                Object.defineProperty(document, 'visibilityState', { get: () => 'visible', enumerable: true, configurable: false });
+                Object.defineProperty(document, 'hidden', { get: () => false, enumerable: true, configurable: false });
+            } catch (e) {}
+
+            // 4. Chặn các API fullscreen và sự kiện liên quan
+            const blockedEvents = ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'msfullscreenchange', 'resize', 'blur', 'orientationchange'];
+            const originalAddEventListener = EventTarget.prototype.addEventListener;
+
+            EventTarget.prototype.addEventListener = function(type, listener, options) {
+                const eventType = String(type).toLowerCase();
+                if (blockedEvents.includes(eventType)) {
+                    logDetection(`EventTarget.${eventType}`);
+                    return originalAddEventListener.call(this, eventType, function(e) {
+                        if (['blur', 'resize', 'orientationchange'].includes(eventType)) {
+                            e.stopImmediatePropagation();
+                            return;
+                        }
+                    }, options);
+                }
+                return originalAddEventListener.call(this, type, listener, options);
+            };
+
+            const patchFullscreenMethod = (target, methodName) => {
+                if (!target || !target[methodName]) return;
+                try {
+                    Object.defineProperty(target, methodName, {
+                        configurable: false,
+                        writable: false,
+                        value: function() {
+                            logDetection(`API.${methodName}`);
+                            return Promise.resolve(this);
+                        }
+                    });
+                } catch (e) {}
+            };
+
+            patchFullscreenMethod(HTMLElement.prototype, 'requestFullscreen');
+            patchFullscreenMethod(HTMLElement.prototype, 'webkitRequestFullscreen');
+            patchFullscreenMethod(HTMLElement.prototype, 'mozRequestFullScreen');
+            patchFullscreenMethod(HTMLElement.prototype, 'msRequestFullscreen');
+            patchFullscreenMethod(Document.prototype, 'exitFullscreen');
+            patchFullscreenMethod(Document.prototype, 'webkitExitFullscreen');
+            patchFullscreenMethod(Document.prototype, 'mozCancelFullScreen');
+            patchFullscreenMethod(Document.prototype, 'msExitFullscreen');
+
+            const originalMatchMedia = window.matchMedia;
+            window.matchMedia = function(query) {
+                if (/fullscreen|display-mode/i.test(query || '')) {
+                    logDetection(`matchMedia(${query})`);
+                    return {
+                        matches: false,
+                        media: query,
+                        onchange: null,
+                        addListener() {},
+                        removeListener() {},
+                        addEventListener() {},
+                        removeEventListener() {},
+                        dispatchEvent() { return true; }
+                    };
+                }
+                return originalMatchMedia ? originalMatchMedia(query) : { matches: false, media: query };
+            };
+
+            if (window.visualViewport) {
+                ['width', 'height', 'offsetTop', 'offsetLeft'].forEach(prop => {
+                    defineReadOnly(window.visualViewport, prop, function() {
+                        logDetection(`visualViewport.${prop}`);
+                        return Math.max(1, (prop.includes('width') ? window.screen.availWidth : window.screen.availHeight) - 1);
+                    });
+                });
+            }
+
+            window.dispatchEvent(new Event('resize'));
+        }
+    });
+
+    status.textContent = 'Đã vô hiệu hóa check Fullscreen!';
+});
+
+// Tính năng 2: Thực thi AI (Đã tích hợp nativeInputValueSetter cho React/Vue/Angular)
 runAiButton.addEventListener('click', async () => {
     status.textContent = 'Đang thu thập dữ liệu...';
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
-    // Thu thập dữ liệu, lọc honeypot/phần tử ẩn và gán ID
     const pageData = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: () => {
@@ -60,7 +226,6 @@ runAiButton.addEventListener('click', async () => {
         }
     });
 
-    // Lượt 1: Lọc & Lập kế hoạch
     status.textContent = 'Lượt 1: Đang lọc & lập kế hoạch...';
     const plan = await callMistral([
         { 
@@ -73,7 +238,6 @@ runAiButton.addEventListener('click', async () => {
         }
     ], 0.4);
 
-    // Lượt 2: Ra quyết định (Sử dụng ID)
     status.textContent = 'Lượt 2: Đang ra quyết định...';
     const actionJson = await callMistral([
         { 
@@ -84,7 +248,7 @@ runAiButton.addEventListener('click', async () => {
             3. TUYỆT ĐỐI KHÔNG LẤY từ khóa từ phần "Kế hoạch" làm target. 
             4. Chỉ trả về JSON duy nhất: {"action": "click" | "type", "id": number, "value": string (nếu là type), "reason": "..."}. Dựa vào ID đã được định dạng.
             Hành động cho phép: [click, type],
-            LƯU Ý: Việc click vào text box để nhập là không cần thiết vì hệ thống có thể tự điền vào mà không cần thao tác click như người dùng bình thường. Đọc kỹ các nội dung trên màn hình liên quan đến yêu cầu của người dùng nếu cần.`
+            LƯU Ý: Việc click vào text box để nhập là không cần thiết vì hệ thống có thể tự điền vào mà không cần thao tác click như người dùng bình thường. Đọc kỹ các nội dung trên màn hình liên quan đến yêu cầu của người dùng nếu cần. BẮT BUỘC phải sử dụng đúng hành động cho từng loại phần tử(nút thì click, ô nhập thì type). Hành động đúng theo yêu cầu của người dùng. TUYỆT ĐỐI không được làm sai hoặc tự nghĩ ra thứ khác để nhập. CÓ THỂ dựa trên vị trí đính kèm để hình dung được cấu trúc trình duyệt và trả về kết quả chính xác hơn."}`
         },
         { 
             role: "user", 
@@ -96,12 +260,10 @@ runAiButton.addEventListener('click', async () => {
         }
     ], 0.4);
 
-    // Parse JSON an toàn
     const result = JSON.parse(actionJson.match(/\{[\s\S]*\}/)[0]);
     debugViewer.textContent = JSON.stringify(result, null, 2);
     status.textContent = 'Đang thực thi: ' + result.action;
 
-    // Thực thi trên trang dựa trên ID đã gán
     await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         args: [result],
@@ -114,14 +276,21 @@ runAiButton.addEventListener('click', async () => {
                 } else if (res.action === 'type') {
                     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     el.focus();
-                    el.value = res.value;
+
+                    // BẢN VÁ NÂNG CAO: Buộc các JS Framework (React, Vue, Angular) phải cập nhật nội bộ State
+                    try {
+                        const prototype = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(prototype, "value").set;
+                        nativeInputValueSetter.call(el, res.value);
+                    } catch(e) {
+                        // Dự phòng fallback nếu trang web không dùng các framework phức tạp
+                        el.value = res.value; 
+                    }
                     
+                    // Phát chuỗi sự kiện chuẩn hóa mô phỏng hành vi gõ bàn phím thật
                     const events = ['input', 'change', 'blur'];
                     events.forEach(eventType => {
-                        el.dispatchEvent(new Event(eventType, { 
-                            bubbles: true, 
-                            cancelable: true 
-                        }));
+                        el.dispatchEvent(new Event(eventType, { bubbles: true, cancelable: true }));
                     });
                     
                     el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));

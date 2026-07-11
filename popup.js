@@ -47,13 +47,19 @@ analyzeLayoutButton.addEventListener('click', async () => {
             };
 
             const fullscreenProperties = {
-                document: [
-                    'fullscreenElement', 'webkitFullscreenElement', 'mozFullScreenElement', 'msFullscreenElement',
-                    'fullscreenEnabled', 'webkitFullscreenEnabled', 'mozFullScreenEnabled', 'msFullScreenEnabled',
-                    'webkitIsFullScreen', 'mozFullScreen'
-                ],
+                document: ['fullscreenElement', 'fullscreenEnabled'],
                 window: ['innerHeight', 'innerWidth', 'outerHeight', 'outerWidth'],
                 screen: ['width', 'height', 'availWidth', 'availHeight']
+            };
+
+            const legacyFullscreenProperties = {
+                document: ['webkitFullscreenElement', 'mozFullScreenElement', 'msFullscreenElement', 'webkitFullscreenEnabled', 'mozFullScreenEnabled', 'msFullScreenEnabled', 'webkitIsFullScreen', 'mozFullScreen']
+            };
+
+            const fullscreenTarget = document.body || document.documentElement;
+            const fullscreenSize = {
+                width: Math.max(window.screen.width || window.innerWidth || 1920, 1920),
+                height: Math.max(window.screen.height || window.innerHeight || 1080, 1080)
             };
 
             const defineReadOnly = (obj, prop, getter) => {
@@ -67,67 +73,68 @@ analyzeLayoutButton.addEventListener('click', async () => {
                 } catch (e) {}
             };
 
-            // 1. Ghi đè thuộc tính Document
+            // 1. Giả lập trạng thái fullscreen hợp lệ
             fullscreenProperties.document.forEach(prop => {
                 defineReadOnly(document, prop, function() {
                     logDetection(`document.${prop}`);
-                    return prop.toLowerCase().includes('element') ? null : true;
+                    return prop === 'fullscreenElement' ? fullscreenTarget : true;
                 });
             });
 
-            // 2. Ghi đè Window và Screen để tránh khớp đúng kích thước fullscreen
-            const screenBase = {
-                width: window.screen.width,
-                height: window.screen.height,
-                availWidth: window.screen.availWidth,
-                availHeight: window.screen.availHeight
-            };
+            legacyFullscreenProperties.document.forEach(prop => {
+                if (prop in document) {
+                    defineReadOnly(document, prop, function() {
+                        logDetection(`document.${prop}`);
+                        const isElementProp = /element/i.test(prop);
+                        return isElementProp ? fullscreenTarget : true;
+                    });
+                }
+            });
 
+            // 2. Giả lập kích thước và tỷ lệ giống fullscreen
             fullscreenProperties.window.forEach(prop => {
                 try {
-                    const naturalOffset = Math.floor(Math.random() * 3) + 1;
                     defineReadOnly(window, prop, function() {
                         logDetection(`window.${prop}`);
-                        const base = prop.toLowerCase().includes('width')
-                            ? (screenBase.availWidth || screenBase.width)
-                            : (screenBase.availHeight || screenBase.height);
-                        return Math.max(1, base - naturalOffset);
+                        return prop.toLowerCase().includes('width') ? fullscreenSize.width : fullscreenSize.height;
                     });
                 } catch (e) {}
             });
 
             fullscreenProperties.screen.forEach(prop => {
                 try {
-                    const baseValue = screenBase[prop] || 0;
                     defineReadOnly(window.screen, prop, function() {
                         logDetection(`screen.${prop}`);
-                        return Math.max(1, baseValue - 1);
+                        return prop.toLowerCase().includes('width') ? fullscreenSize.width : fullscreenSize.height;
                     });
                 } catch (e) {}
             });
 
-            // 3. Chống phát hiện rời Tab / visibility
+            // 3. Giữ trạng thái hiển thị như đang ở foreground
             try {
                 Object.defineProperty(document, 'visibilityState', { get: () => 'visible', enumerable: true, configurable: false });
                 Object.defineProperty(document, 'hidden', { get: () => false, enumerable: true, configurable: false });
+                Object.defineProperty(document, 'hasFocus', { get: () => true, enumerable: true, configurable: false });
             } catch (e) {}
 
-            // 4. Chặn các API fullscreen và sự kiện liên quan
-            const blockedEvents = ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'msfullscreenchange', 'resize', 'blur', 'orientationchange'];
+            // 4. Giả lập API fullscreen và phát sự kiện phù hợp
+            const makeNativeFake = (value, fallback) => value ?? fallback;
             const originalAddEventListener = EventTarget.prototype.addEventListener;
+            const blockedEvents = ['blur'];
 
             EventTarget.prototype.addEventListener = function(type, listener, options) {
                 const eventType = String(type).toLowerCase();
+                if (['fullscreenchange', 'fullscreenerror', 'webkitfullscreenchange', 'mozfullscreenchange', 'msfullscreenchange'].includes(eventType)) {
+                    logDetection(`EventTarget.${eventType}`);
+                    return makeNativeFake(originalAddEventListener.call(this, eventType, listener, options), undefined);
+                }
                 if (blockedEvents.includes(eventType)) {
                     logDetection(`EventTarget.${eventType}`);
-                    return originalAddEventListener.call(this, eventType, function(e) {
-                        if (['blur', 'resize', 'orientationchange'].includes(eventType)) {
-                            e.stopImmediatePropagation();
-                            return;
-                        }
-                    }, options);
+                    return makeNativeFake(originalAddEventListener.call(this, eventType, function(e) {
+                        e.stopImmediatePropagation();
+                    }, options), undefined);
                 }
-                return originalAddEventListener.call(this, type, listener, options);
+                return makeNativeFake(originalAddEventListener.call(this, type, listener, options), undefined);
             };
 
             const patchFullscreenMethod = (target, methodName) => {
@@ -138,6 +145,11 @@ analyzeLayoutButton.addEventListener('click', async () => {
                         writable: false,
                         value: function() {
                             logDetection(`API.${methodName}`);
+                            try {
+                                document.dispatchEvent(new Event('fullscreenchange'));
+                                window.dispatchEvent(new Event('fullscreenchange'));
+                                window.dispatchEvent(new Event('resize'));
+                            } catch (e) {}
                             return Promise.resolve(this);
                         }
                     });
@@ -145,20 +157,20 @@ analyzeLayoutButton.addEventListener('click', async () => {
             };
 
             patchFullscreenMethod(HTMLElement.prototype, 'requestFullscreen');
-            patchFullscreenMethod(HTMLElement.prototype, 'webkitRequestFullscreen');
-            patchFullscreenMethod(HTMLElement.prototype, 'mozRequestFullScreen');
-            patchFullscreenMethod(HTMLElement.prototype, 'msRequestFullscreen');
             patchFullscreenMethod(Document.prototype, 'exitFullscreen');
+            patchFullscreenMethod(HTMLElement.prototype, 'webkitRequestFullscreen');
             patchFullscreenMethod(Document.prototype, 'webkitExitFullscreen');
+            patchFullscreenMethod(HTMLElement.prototype, 'mozRequestFullScreen');
             patchFullscreenMethod(Document.prototype, 'mozCancelFullScreen');
+            patchFullscreenMethod(HTMLElement.prototype, 'msRequestFullscreen');
             patchFullscreenMethod(Document.prototype, 'msExitFullscreen');
 
             const originalMatchMedia = window.matchMedia;
             window.matchMedia = function(query) {
                 if (/fullscreen|display-mode/i.test(query || '')) {
                     logDetection(`matchMedia(${query})`);
-                    return {
-                        matches: false,
+                    return makeNativeFake({
+                        matches: true,
                         media: query,
                         onchange: null,
                         addListener() {},
@@ -166,21 +178,24 @@ analyzeLayoutButton.addEventListener('click', async () => {
                         addEventListener() {},
                         removeEventListener() {},
                         dispatchEvent() { return true; }
-                    };
+                    }, { matches: false, media: query });
                 }
-                return originalMatchMedia ? originalMatchMedia(query) : { matches: false, media: query };
+                return makeNativeFake(originalMatchMedia ? originalMatchMedia(query) : { matches: false, media: query }, { matches: false, media: query });
             };
 
             if (window.visualViewport) {
                 ['width', 'height', 'offsetTop', 'offsetLeft'].forEach(prop => {
                     defineReadOnly(window.visualViewport, prop, function() {
                         logDetection(`visualViewport.${prop}`);
-                        return Math.max(1, (prop.includes('width') ? window.screen.availWidth : window.screen.availHeight) - 1);
+                        return prop.includes('width') ? fullscreenSize.width : fullscreenSize.height;
                     });
                 });
             }
 
             window.dispatchEvent(new Event('resize'));
+            document.dispatchEvent(new Event('fullscreenchange'));
+            window.dispatchEvent(new Event('fullscreenchange'));
+            window.dispatchEvent(new Event('focus'));
         }
     });
 

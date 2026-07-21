@@ -1,7 +1,17 @@
 {
   "manifest_version": 3,
   "name": "AI",
-  "version": "1.6.0",
+  "version": "2.0.0",
   "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["https://generativelanguage.googleapis.com/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["logic.wasm"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "action": { "default_popup": "popup.html" }
 }

@@ -1,6 +1,8 @@
 const GEMINI_API_KEY = 'API';
 const GEMINI_MODEL = 'gemini-3.1-flash-lite';
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+// Sử dụng endpoint chuẩn, chuyển key sang Header thay vì truyền trực tiếp trên URL để tương thích tuyệt đối với định dạng key mới
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
 const runAiButton = document.getElementById('runAiButton');
 const analyzeLayoutButton = document.getElementById('analyzeLayoutButton');
 const debugViewer = document.getElementById('analysisResult');
@@ -54,6 +56,9 @@ async function sendGeminiRequestViaPage(body) {
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', GEMINI_ENDPOINT, false);
                 xhr.setRequestHeader('Content-Type', 'application/json');
+                // Nâng cấp truyền API Key mới thông qua Header X-goog-api-key hoặc Authorization tương ứng
+                xhr.setRequestHeader('X-goog-api-key', GEMINI_API_KEY);
+                
                 let responseText = '';
                 try {
                     xhr.send(bodyText);
@@ -116,7 +121,7 @@ async function sendGeminiRequestViaPage(body) {
         }
     } catch (err) {
         if (err instanceof SyntaxError) {
-            // Not a JSON error payload; continue returning raw response text.
+            // Không phải JSON lỗi, tiếp tục trả về text thô.
         } else {
             throw err;
         }
@@ -145,7 +150,7 @@ async function callGemini(messages, temp = 0.1) {
         || '';
 }
 
-// Tính năng 1: Chống kiểm tra Fullscreen (Đã nâng cấp ẩn Descriptor & Sai số kích thước tự nhiên)
+// Tính năng 1: Chống kiểm tra Fullscreen
 analyzeLayoutButton.addEventListener('click', async () => {
     status.textContent = 'Đang quét biến và khóa cơ chế Fullscreen...';
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -155,37 +160,37 @@ analyzeLayoutButton.addEventListener('click', async () => {
         return;
     }
 
-            await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                world: 'MAIN', 
-                args: [wasmModuleUrl],
-                func: async (wasmUrl) => {
-                    const response = await fetch(wasmUrl);
-                    const buffer = await response.arrayBuffer();
-                    const imports = {
-                        env: {
-                            send_request: () => 0
-                        }
-                    };
-                    const { instance } = await WebAssembly.instantiate(buffer, imports);
-                    const wasm = instance.exports;
-                    const detectedProps = new Set();
+    await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: 'MAIN', 
+        args: [wasmModuleUrl],
+        func: async (wasmUrl) => {
+            const response = await fetch(wasmUrl);
+            const buffer = await response.arrayBuffer();
+            const imports = {
+                env: {
+                    send_request: () => 0
+                }
+            };
+            const { instance } = await WebAssembly.instantiate(buffer, imports);
+            const wasm = instance.exports;
+            const detectedProps = new Set();
 
-                    const logDetection = (prop) => {
-                        if (!detectedProps.has(prop)) {
-                            detectedProps.add(prop);
-                            console.log(`%c[Bắt bài] Hệ thống vừa check: ${prop}`, "color: #f59e0b; font-weight: bold;");
-                        }
-                    };
+            const logDetection = (prop) => {
+                if (!detectedProps.has(prop)) {
+                    detectedProps.add(prop);
+                    console.log(`%c[Bắt bài] Hệ thống vừa check: ${prop}`, "color: #f59e0b; font-weight: bold;");
+                }
+            };
 
-                    const fullscreenProperties = {
-                        document: ['fullscreenElement', 'fullscreenEnabled'],
-                        window: ['innerHeight', 'innerWidth', 'outerHeight', 'outerWidth'],
-                        screen: ['width', 'height', 'availWidth', 'availHeight']
-                    };
+            const fullscreenProperties = {
+                document: ['fullscreenElement', 'fullscreenEnabled'],
+                window: ['innerHeight', 'innerWidth', 'outerHeight', 'outerWidth'],
+                screen: ['width', 'height', 'availWidth', 'availHeight']
+            };
 
             const legacyFullscreenProperties = {
-                document: ['webkitFullscreenElement', 'mozFullScreenElement', 'msFullscreenElement', 'webkitFullscreenEnabled', 'mozFullScreenEnabled', 'msFullScreenEnabled', 'webkitIsFullScreen', 'mozFullScreen']
+                document: ['webkitFullscreenElement', 'mozFullScreenElement', 'msFullscreenElement', 'webkitFullscreenEnabled', 'mozFullScreenEnabled', 'msFullscreenEnabled', 'webkitIsFullScreen', 'mozFullScreen']
             };
 
             const fullscreenTarget = document.body || document.documentElement;
@@ -209,7 +214,6 @@ analyzeLayoutButton.addEventListener('click', async () => {
                 } catch (e) {}
             };
 
-            // 1. Giả lập trạng thái fullscreen hợp lệ
             fullscreenProperties.document.forEach(prop => {
                 defineReadOnly(document, prop, function() {
                     logDetection(`document.${prop}`);
@@ -227,7 +231,6 @@ analyzeLayoutButton.addEventListener('click', async () => {
                 }
             });
 
-            // 2. Giả lập kích thước và tỷ lệ giống fullscreen
             fullscreenProperties.window.forEach(prop => {
                 try {
                     defineReadOnly(window, prop, function() {
@@ -246,14 +249,12 @@ analyzeLayoutButton.addEventListener('click', async () => {
                 } catch (e) {}
             });
 
-            // 3. Giữ trạng thái hiển thị như đang ở foreground
             try {
                 Object.defineProperty(document, 'visibilityState', { get: () => 'visible', enumerable: true, configurable: false });
                 Object.defineProperty(document, 'hidden', { get: () => false, enumerable: true, configurable: false });
                 Object.defineProperty(document, 'hasFocus', { get: () => true, enumerable: true, configurable: false });
             } catch (e) {}
 
-            // 4. Giả lập API fullscreen và phát sự kiện phù hợp
             const makeNativeFake = (value, fallback) => value ?? fallback;
             const originalAddEventListener = EventTarget.prototype.addEventListener;
             const blockedEvents = ['blur'];
@@ -338,7 +339,7 @@ analyzeLayoutButton.addEventListener('click', async () => {
     status.textContent = 'Đã vô hiệu hóa check Fullscreen!';
 });
 
-// Tính năng 2: Thực thi AI (Đã tích hợp nativeInputValueSetter cho React/Vue/Angular)
+// Tính năng 2: Thực thi AI
 runAiButton.addEventListener('click', async () => {
     status.textContent = 'Đang thu thập dữ liệu...';
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -460,17 +461,14 @@ runAiButton.addEventListener('click', async () => {
                     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     el.focus();
 
-                    // BẢN VÁ NÂNG CAO: Buộc các JS Framework (React, Vue, Angular) phải cập nhật nội bộ State
                     try {
                         const prototype = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
                         const nativeInputValueSetter = Object.getOwnPropertyDescriptor(prototype, "value").set;
                         nativeInputValueSetter.call(el, res.value);
                     } catch(e) {
-                        // Dự phòng fallback nếu trang web không dùng các framework phức tạp
                         el.value = res.value; 
                     }
                     
-                    // Phát chuỗi sự kiện chuẩn hóa mô phỏng hành vi gõ bàn phím thật
                     const events = ['input', 'change', 'blur'];
                     events.forEach(eventType => {
                         el.dispatchEvent(new Event(eventType, { bubbles: true, cancelable: true }));

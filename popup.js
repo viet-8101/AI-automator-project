@@ -1,4 +1,4 @@
-const GEMINI_API_KEY = 'AIzaSyDYwHDf1r5DySKhq4NtX8K1HKROJUqOm_Y';
+const GEMINI_API_KEY = 'API';
 const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 const runAiButton = document.getElementById('runAiButton');

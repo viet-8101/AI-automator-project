@@ -9,10 +9,15 @@
   <div class="popup">
     <h1>Element Agent</h1>
 
-    <textarea id="promptInput" placeholder="Nhập lệnh điều khiển..."></textarea>
+    <label for="promptInput">Yêu cầu</label>
+    <textarea id="promptInput" placeholder="Mô tả mục tiêu theo ngôn ngữ tự nhiên. AI sẽ tự quyết định cần một hay nhiều bước..."></textarea>
 
     <div class="button-group">
-      <button id="analyzeLayoutButton" style="background: #10b981;">Chống Fullscreen</button>
+      <button id="analyzeLayoutButton">Chống Fullscreen</button>
+      <button id="antiPauseButton">Chống Tự Dừng</button>
+    </div>
+    
+    <div class="button-group run-group">
       <button id="runAiButton">Thực thi AI</button>
     </div>
 
@@ -22,7 +27,7 @@
     </div>
 
     <pre id="analysisResult">Dữ liệu sẽ hiển thị tại đây...</pre>
-    <p id="status" style="font-size: 0.75rem; color: #64748b;">Sẵn sàng.</p>
+    <p id="status">Sẵn sàng.</p>
   </div>
   <script src="popup.js"></script>
 </body>
